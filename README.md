@@ -9,8 +9,8 @@ This Magisk module installs the latest stable version of Busybox (+patches) to t
 ### v1.0 - 2019-08-07
 * Initial release
 
-## Busybox Source Code
-* Source [busybox.net](https://git.busybox.net/busybox/)
+## Source Code
+* Source [busybox.net](https://git.busybox.net/busybox)
 
 ## Module Source Code
 * Module [GitHub](https://github.com/henriknelson/busybox-magisk-module)
