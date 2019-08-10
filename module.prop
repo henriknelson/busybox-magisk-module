@@ -1,6 +1,6 @@
 id=busybox-custom
-name=Busybox for Android (aarch64)
+name=Busybox for Android
 version=1.31.0
 versionCode=1
 author=nelshh
-description=Static busybox binary for Android built with the NDK
+description=A statically built version of BusyBox for android (aarch64)
