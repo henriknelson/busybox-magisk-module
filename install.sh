@@ -1,275 +1,161 @@
-# Busybox Installer Script
-# shamelessly stolen from 0sm0sis.
+##########################################################################################
+#
+# Magisk Module Installer Script
+#
+##########################################################################################
+##########################################################################################
+#
+# Instructions:
+#
+# 1. Place your files into system folder (delete the placeholder file)
+# 2. Fill in your module's info into module.prop
+# 3. Configure and implement callbacks in this file
+# 4. If you need boot scripts, add them into common/post-fs-data.sh or common/service.sh
+# 5. Add your additional or modified system properties into common/system.prop
+#
+##########################################################################################
 
-# make sure variables are correct regardless of Magisk or recovery sourcing the script
-[ -z $OUTFD ] && OUTFD=/proc/self/fd/$2 || OUTFD=/proc/self/fd/$OUTFD;
-[ ! -z $ZIP ] && { ZIPFILE="$ZIP"; unset ZIP; }
-[ -z $ZIPFILE ] && ZIPFILE="$3";
+##########################################################################################
+# Config Flags
+##########################################################################################
 
-# embedded mode support
-readlink /proc/$$/fd/$2 2>/dev/null | grep /tmp >/dev/null;
-if [ "$?" -eq "0" ]; then
-  # rerouted to log file, so suppress recovery ui commands
-  OUTFD=/proc/self/fd/0;
-  # try to find the actual fd (pipe with parent updater likely started as 'update-binary 3 fd zipfile')
-  for FD in `ls /proc/$$/fd`; do
-    readlink /proc/$$/fd/$FD 2>/dev/null | grep pipe >/dev/null;
-    if [ "$?" -eq "0" ]; then
-      ps | grep " 3 $FD " | grep -v grep >/dev/null;
-      if [ "$?" -eq "0" ]; then
-        OUTFD=/proc/self/fd/$FD;
-        break;
-      fi;
-    fi;
-  done;
-fi;
+# Set to true if you do *NOT* want Magisk to mount
+# any files for you. Most modules would NOT want
+# to set this flag to true
+SKIPMOUNT=false
 
-# Magisk Manager/booted flashing support
-test -e /data/adb/magisk && adb=adb;
-ps | grep zygote | grep -v grep >/dev/null && BOOTMODE=true || BOOTMODE=false;
-$BOOTMODE || ps -A 2>/dev/null | grep zygote | grep -v grep >/dev/null && BOOTMODE=true;
-if $BOOTMODE; then
-  OUTFD=/proc/self/fd/0;
-  dev=/dev;
-  devtmp=/dev/tmp;
-  if [ -e /data/$adb/magisk ]; then
-    if [ ! -f /data/$adb/magisk_merge.img -a ! -e /data/adb/modules ]; then
-      (/system/bin/make_ext4fs -b 4096 -l 64M /data/$adb/magisk_merge.img || /system/bin/mke2fs -b 4096 -t ext4 /data/$adb/magisk_merge.img 64M) >/dev/null;
-    fi;
-    test -e /magisk/.core/busybox && magiskbb=/magisk/.core/busybox;
-    test -e /sbin/.core/busybox && magiskbb=/sbin/.core/busybox;
-    test -e /sbin/.magisk/busybox && magiskbb=/sbin/.magisk/busybox;
-    test "$magiskbb" && export PATH="$magiskbb:$PATH";
-  fi;
-fi;
+# Set to true if you need to load system.prop
+PROPFILE=false
 
-ui_print() { $BOOTMODE && echo "$1" || echo -e "ui_print $1\nui_print" >> $OUTFD; }
-show_progress() { echo "progress $1 $2" >> $OUTFD; }
-set_progress() { echo "set_progress $1" >> $OUTFD; }
-file_getprop() { grep "^$2" "$1" | head -n1 | cut -d= -f2; }
-find_target() {
-  # Magisk clean flash support
-  if [ -e /data/$adb/magisk -a ! -e /data/$adb/magisk.img -a ! -e /data/adb/modules ]; then
-    make_ext4fs -b 4096 -l 64M /data/$adb/magisk.img || mke2fs -b 4096 -t ext4 /data/$adb/magisk.img 64M;
-  fi;
+# Set to true if you need post-fs-data script
+POSTFSDATA=false
 
-  # allow forcing a system installation regardless of su.img/magisk.img detection
-  if [ ! "$system" ]; then
-    suimg=`(ls /data/$adb/magisk_merge.img || ls /data/su.img || ls /cache/su.img || ls /data/$adb/magisk.img || ls /cache/magisk.img) 2>/dev/null`;
-    mnt=$devtmp/$(basename $suimg .img);
-  fi;
-  if [ "$suimg" ]; then
-    umount $mnt;
-    test ! -e $mnt && mkdir -p $mnt;
-    mount -t ext4 -o rw,noatime $suimg $mnt;
-    for i in 0 1 2 3 4 5 6 7; do
-      test "$(mount | grep " $mnt ")" && break;
-      loop=/dev/block/loop$i;
-      if [ ! -f "$loop" -o ! -b "$loop" ]; then
-        mknod $loop b 7 $i;
-      fi;
-      losetup $loop $suimg && mount -t ext4 -o loop,noatime $loop $mnt;
-    done;
-    case $mnt in
-      */magisk*) magisk=/$modname/system;;
-    esac;
-    if [ -d "$mnt$magisk/xbin" -o "$magisk" -a -d "$root/system/xbin" ]; then
-      target=$mnt$magisk/xbin;
-    else
-      target=$mnt$magisk/bin;
-    fi;
-  else
-    # SuperSU BINDSBIN support
-    mnt=$(dirname `find /data -name supersu_is_here | head -n1` 2>/dev/null);
-    if [ -e "$mnt" -a ! "$system" ]; then
-      target=$mnt/xbin;
-    elif [ -e "/data/adb/modules" -a ! "$system" ]; then
-      mnt=/data/adb/modules_update;
-      magisk=/$modname/system;
-      if [ -d "$mnt$magisk/xbin" -o "$magisk" -a -d "$root/system/xbin" ]; then
-        target=$mnt$magisk/xbin;
-      else
-        target=$mnt$magisk/bin;
-      fi;
-    else
-      mount -o rw,remount /system;
-      mount /system;
-      if [ -d "$root/system/xbin" ]; then
-        target=$root/system/xbin;
-      else
-        target=$root/system/bin;
-      fi;
-    fi;
-  fi;
-  ui_print "Using path: $target";
-}
-custom_cleanup() {
-  cleanup="$target";
-  if [ "$target" == "$mnt$magisk/xbin" -a -f "$mnt$magisk/bin/busybox" ]; then
-    $target/busybox rm -f $mnt$magisk/bin/busybox;
-    cleanup="$mnt$magisk/bin $target";
-  fi;
-  for dir in $cleanup; do
-    cd $dir;
-    for i in $(ls -al `find -type l` | $target/busybox awk '{ print $(NF-2) ":" $NF }'); do
-      case $(echo $i | $target/busybox cut -d: -f2) in
-        *busybox) list="$list $dir/$(echo $i | $target/busybox cut -d: -f1)";;
-      esac;
-    done;
-  done;
-  $target/busybox rm -f $list;
-}
-abort() {
-  ui_print " ";
-  ui_print "Your system has not been changed.";
-  ui_print " ";
-  ui_print "Script will now exit...";
-  ui_print " ";
-  umount $mnt;
-  umount /system;
-  umount /data;
-  umount /cache;
-  exit 1;
+# Set to true if you need late_start service script
+LATESTARTSERVICE=true
+
+##########################################################################################
+# Replace list
+##########################################################################################
+
+# List all directories you want to directly replace in the system
+# Check the documentations for more info why you would need this
+
+# Construct your list in the following format
+# This is an example
+REPLACE_EXAMPLE="
+/system/app/Youtube
+/system/priv-app/SystemUI
+/system/priv-app/Settings
+/system/framework
+"
+
+# Construct your own list here
+REPLACE="
+"
+
+##########################################################################################
+#
+# Function Callbacks
+#
+# The following functions will be called by the installation framework.
+# You do not have the ability to modify update-binary, the only way you can customize
+# installation is through implementing these functions.
+#
+# When running your callbacks, the installation framework will make sure the Magisk
+# internal busybox path is *PREPENDED* to PATH, so all common commands shall exist.
+# Also, it will make sure /data, /system, and /vendor is properly mounted.
+#
+##########################################################################################
+##########################################################################################
+#
+# The installation framework will export some variables and functions.
+# You should use these variables and functions for installation.
+#
+# ! DO NOT use any Magisk internal paths as those are NOT public API.
+# ! DO NOT use other functions in util_functions.sh as they are NOT public API.
+# ! Non public APIs are not guranteed to maintain compatibility between releases.
+#
+# Available variables:
+#
+# MAGISK_VER (string): the version string of current installed Magisk
+# MAGISK_VER_CODE (int): the version code of current installed Magisk
+# BOOTMODE (bool): true if the module is currently installing in Magisk Manager
+# MODPATH (path): the path where your module files should be installed
+# TMPDIR (path): a place where you can temporarily store files
+# ZIPFILE (path): your module's installation zip
+# ARCH (string): the architecture of the device. Value is either arm, arm64, x86, or x64
+# IS64BIT (bool): true if $ARCH is either arm64 or x64
+# API (int): the API level (Android version) of the device
+#
+# Availible functions:
+#
+# ui_print <msg>
+#     print <msg> to console
+#     Avoid using 'echo' as it will not display in custom recovery's console
+#
+# abort <msg>
+#     print error message <msg> to console and terminate installation
+#     Avoid using 'exit' as it will skip the termination cleanup steps
+#
+# set_perm <target> <owner> <group> <permission> [context]
+#     if [context] is empty, it will default to "u:object_r:system_file:s0"
+#     this function is a shorthand for the following commands
+#       chown owner.group target
+#       chmod permission target
+#       chcon context target
+#
+# set_perm_recursive <directory> <owner> <group> <dirpermission> <filepermission> [context]
+#     if [context] is empty, it will default to "u:object_r:system_file:s0"
+#     for all files in <directory>, it will call:
+#       set_perm file owner group filepermission context
+#     for all directories in <directory> (including itself), it will call:
+#       set_perm dir owner group dirpermission context
+#
+##########################################################################################
+##########################################################################################
+# If you need boot scripts, DO NOT use general boot scripts (post-fs-data.d/service.d)
+# ONLY use module scripts as it respects the module status (remove/disable) and is
+# guaranteed to maintain the same behavior in future Magisk releases.
+# Enable boot scripts by setting the flags in the config section above.
+##########################################################################################
+
+# Set what you want to display when installing your module
+
+print_modname() {
+  ui_print "*********************************************"
+  ui_print "     busybox for Android       	    	       "
+  ui_print "         - v1.31.0                           "
+  ui_print "         - built by nelshh @ xda-developers  "
+  ui_print "*********************************************"
 }
 
-ui_print " ";
-ui_print "Busybox Installer Script";
-modname=busybox-ndk;
-show_progress 1.34 0;
+# Copy/extract your module files into $MODPATH in on_install.
+on_install() {
+  ui_print "[1/5] Extracting files..";
+  unzip -o "$ZIPFILE" '*' -d $MODPATH >&2;
+  ui_print "[2/5] Setting permissions..";
+}
 
-ui_print " ";
-ui_print "Mounting...";
-mount -o ro /system;
-mount /data;
-mount /cache;
-test -f /system/system/build.prop && root=/system;
-set_progress 0.2;
+set_permissions() {
+  # The following is the default rule, DO NOT remove
+  set_perm_recursive $MODPATH 0 0 0755 0644;
 
+  ui_print "[3/5] Installing to /system/xbin..";
+  chown -R 0:0 $MODPATH/system/xbin;
+  chmod -R 755 $MODPATH/system/xbin;
+  find $MODPATH/system/xbin -type f -exec chmod 755 {} \+;
+  find $MODPATH/system/xbin -type l -exec chmod 755 {} \+;
 
-# override zip filename parsing with a settings file
-if [ -f /data/.$modname ]; then
-  choice=$(cat /data/.$modname);
-else
-  choice=$(basename "$ZIPFILE");
-fi;
+  ui_print "[4/5] Installing to /data/man..";
+  mkdir -p /data/man;
+  cp -r $MODPATH/custom/man/* /data/man/;
+  chmod -R 664 /data/man;
+  chown -R 0:0 /data/man;
+  find /data/man -type d -exec chmod 755 {} \+;
+  find /data/man -type f -exec chmod 664 {} \+;
+  if [[ -s "/system/bin/mandoc" ]]; then
+	makewhatis /data/man;
+  fi
 
-case $choice in
-  *uninstall*|*Uninstall*|*UNINSTALL*) action=uninstallation;;
-  *) action=installation;;
-esac;
-
-case $choice in
-  *nolinks*|*NoLinks*|*NOLINKS*) nolinks=1;
-esac;
-
-case $choice in
-  *system*|*System*|*SYSTEM*) system=1; ui_print " "; ui_print "Warning: Forcing a system $action!";;
-esac;
-
-if [ "$action" == "installation" ]; then
-  ui_print " ";
-  ui_print "Extracting files...";
-  mkdir -p $dev/tmp/$modname;
-  cd $dev/tmp/$modname;
-  unzip -o "$ZIPFILE";
-  set_progress 0.3;
-
-  ui_print " ";
-  ui_print "Installing...";
-  #abi=`file_getprop $root/system/build.prop ro.product.cpu.abi`;
-  #case $abi in
-  #  arm*|x86*|mips*) ;;
-  #  *) abi=`getprop ro.product.cpu.abi`;;
-  #esac;
-  #case $abi in
-  #  arm*|x86*|mips*) ;;
-  #  *) abi=`file_getprop /default.prop ro.product.cpu.abi`;;
-  #esac;
-  #case $abi in
-  #  arm64*) arch=arm64;;
-  #  arm*) arch=arm;;
-  #  x86_64*) arch=x86_64;;
-  #  x86*) arch=x86;;
-  #  mips64*) arch=mips64;;
-  #  mips*) arch=mips;;
-  #  *) ui_print "Unknown architecture: $abi"; abort;;
-  #esac;
-
-  find_target;
-
-  mkdir -p $target;
-  cp -f busybox $target/busybox;
-  chown 0:0 "$target/busybox";
-  chmod 755 "$target/busybox";
-  if [ "$magisk" ]; then
-    cp -f module.prop $mnt/$modname/;
-    touch $mnt/$modname/auto_mount;
-    if $BOOTMODE; then
-      test -e /magisk && imgmnt=/magisk || imgmnt=/sbin/.core/img;
-      test -e /sbin/.magisk/img && imgmnt=/sbin/.magisk/img;
-      test -e /data/adb/modules && imgmnt=/data/adb/modules;
-      mkdir -p "$imgmnt/$modname";
-      touch "$imgmnt/$modname/update";
-      cp -f module.prop "$imgmnt/$modname/";
-    fi;
-  fi;
-  set_progress 0.8;
-
-  ui_print " ";
-  ui_print "Cleaning...";
-  custom_cleanup;
-
-  if [ ! "$nolinks" ]; then
-    ui_print " ";
-    ui_print "Creating symlinks...";
-    sysbin="$(ls $root/system/bin)";
-    test $BOOTMODE && existbin="$(ls $imgmnt/$modname/system/bin 2>/dev/null)";
-    for applet in `$target/busybox --list`; do
-      case $target in
-        */bin)
-          if [ "$(echo "$sysbin" | $target/busybox grep "^$applet$")" ]; then
-            if $BOOTMODE && [ "$(echo "$existbin" | $target/busybox grep "^$applet$")" ]; then
-              $target/busybox ln -sf busybox $applet;
-            fi;
-          else
-            $target/busybox ln -sf busybox $applet;
-          fi;
-        ;;
-        *) $target/busybox ln -sf busybox $applet;;
-      esac;
-    done;
-  fi;
-  test "$magisk" && chcon -hR 'u:object_r:system_file:s0' "$mnt/$modname";
-else
-  ui_print " ";
-  ui_print "Uninstalling...";
-
-  find_target;
-
-  if [ ! -f "$target/busybox" ]; then
-    ui_print " ";
-    ui_print "No busybox installation found!";
-    abort;
-  fi;
-
-  list=busybox;
-  custom_cleanup;
-  test "$magisk" && rm -rf /magisk/$modname /sbin/.core/img/$modname /sbin/.magisk/img/$modname /data/adb/modules/$modname;
-fi;
-set_progress 1.0;
-
-ui_print " ";
-ui_print "Unmounting...";
-cd /;
-test "$suimg" && umount $mnt;
-test "$loop" && losetup -d $loop;
-umount /system;
-umount /data;
-umount /cache;
-set_progress 1.2;
-
-rm -rf /tmp/$modname /dev/tmp;
-ui_print " ";
-ui_print "Done!";
-set_progress 1.34;
-exit 0;
+  ui_print "[5/5] Installation finished";
+}
