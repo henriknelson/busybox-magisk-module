@@ -1,5 +1,4 @@
 ar;busybox
-arp;busybox
 awk;busybox
 base64;busybox
 basename;busybox
@@ -20,7 +19,6 @@ cmp;busybox
 comm;busybox
 cp;busybox
 cpio;busybox
-crond;busybox
 crontab;busybox
 cut;busybox
 date;busybox
@@ -41,7 +39,6 @@ find;busybox
 fold;busybox
 free;busybox
 fsync;busybox
-ftpd;busybox
 ftpget;busybox
 ftpput;busybox
 fuser;busybox
@@ -53,11 +50,7 @@ hd;busybox
 head;busybox
 hexdump;busybox
 hostname;busybox
-httpd;busybox
-i2ctransfer;busybox
 id;busybox
-ifconfig;busybox
-inotifyd;busybox
 install;busybox
 iostat;busybox
 ipcalc;busybox
@@ -96,7 +89,6 @@ pidof;busybox
 pipe_progress;busybox
 pkill;busybox
 pmap;busybox
-popmaildir;busybox
 printenv;busybox
 printf;busybox
 ps;busybox
@@ -113,7 +105,6 @@ resize;busybox
 rev;busybox
 rm;busybox
 rmdir;busybox
-route;busybox
 run-parts;busybox
 runsv;busybox
 runsvdir;busybox
@@ -121,7 +112,6 @@ rx;busybox
 script;busybox
 scriptreplay;busybox
 sed;busybox
-sendmail;busybox
 seq;busybox
 setsid;busybox
 setuidgid;busybox
@@ -135,24 +125,19 @@ smemcap;busybox
 softlimit;busybox
 sort;busybox
 split;busybox
-start-stop-daemon;busybox
 strings;busybox
 stty;busybox
 sum;busybox
 sv;busybox
-svlogd;busybox
 sync;busybox
-sysctl;busybox
 tac;busybox
 tail;busybox
 tar;busybox
 tcpsvd;busybox
 tee;busybox
 telnet;busybox
-telnetd;busybox
 test;busybox
 tftp;busybox
-tftpd;busybox
 time;busybox
 timeout;busybox
 touch;busybox

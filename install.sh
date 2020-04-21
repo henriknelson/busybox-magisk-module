@@ -124,7 +124,7 @@ REPLACE="
 print_modname() {
   ui_print "*********************************************"
   ui_print "     busybox for Android       	    	       "
-  ui_print "         - v1.31.0                           "
+  ui_print "         - v1.31.1                           "
   ui_print "         - built by nelshh @ xda-developers  "
   ui_print "*********************************************"
 }
